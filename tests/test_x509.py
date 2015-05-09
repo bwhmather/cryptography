@@ -434,12 +434,9 @@ class TestRSACertificate(object):
             True,
             x509.BasicConstraints(True, 2),
         ))
-        builder.sign(private_key, hashes.SHA1())
 
-        # Encode to PEM and then load it back.
-        request = x509.load_pem_x509_csr(builder.public_bytes(
-            encoding=serialization.Encoding.PEM,
-        ), backend)
+        request = builder.sign(private_key, hashes.SHA1())
+
         assert isinstance(request.signature_hash_algorithm, hashes.SHA1)
         public_key = request.public_key()
         assert isinstance(public_key, rsa.RSAPublicKey)
@@ -497,12 +494,9 @@ class TestRSACertificate(object):
         not_valid_after = datetime.datetime(2030, 12, 31, 8, 30)
         builder.set_not_valid_before(not_valid_before)
         builder.set_not_valid_after(not_valid_after)
-        builder.sign(issuer_private_key, hashes.SHA1())
 
-        # Encode to PEM then load it back.
-        cert = x509.load_pem_x509_certificate(builder.public_bytes(
-            encoding=serialization.Encoding.PEM,
-        ), backend)
+        cert = builder.sign(issuer_private_key, hashes.SHA1())
+
         assert cert.version is x509.Version.v3
         assert cert.not_valid_before == not_valid_before
         assert cert.not_valid_after == not_valid_after

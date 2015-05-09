@@ -387,6 +387,21 @@ class _Certificate(object):
 
         return x509.ExtendedKeyUsage(ekus)
 
+    def public_bytes(self, encoding):
+        if not isinstance(encoding, serialization.Encoding):
+            raise TypeError("encoding must be an item from the Encoding enum")
+
+        # TODO: make text prelude optional.
+        bio = self._backend._create_mem_bio()
+        res = self._backend._lib.X509_print(bio, self._x509)
+        assert res == 1
+        if encoding is serialization.Encoding.PEM:
+            res = self._backend._lib.PEM_write_bio_X509(bio, self._x509)
+        elif encoding is serialization.Encoding.DER:
+            res = self._backend._lib.i2d_X509_bio(bio, self._x509)
+        assert res == 1
+        return self._backend._read_mem_bio(bio)
+
 
 @utils.register_interface(x509.CertificateSigningRequest)
 class _CertificateSigningRequest(object):
@@ -415,6 +430,24 @@ class _CertificateSigningRequest(object):
             raise UnsupportedAlgorithm(
                 "Signature algorithm OID:{0} not recognized".format(oid)
             )
+
+    def public_bytes(self, encoding):
+        if not isinstance(encoding, serialization.Encoding):
+            raise TypeError("encoding must be an item from the Encoding enum")
+
+        # TODO: make text prelude optional.
+        bio = self._backend._create_mem_bio()
+        res = self._backend._lib.X509_REQ_print(bio, self._x509_req)
+        assert res == 1
+        if encoding is serialization.Encoding.PEM:
+            res = self._backend._lib.PEM_write_bio_X509_REQ(
+                bio, self._x509_req
+            )
+        elif encoding is serialization.Encoding.DER:
+            res = self._backend._lib.i2d_X509_REQ_bio(bio, self._x509_req)
+        assert res == 1
+        return self._backend._read_mem_bio(bio)
+
 
 
 def _make_asn1_int(backend, x):
@@ -514,6 +547,8 @@ class _CertificateSigningRequestBuilder(object):
 
     # TODO: accept {v1, v3} enum instead of {0, 2} int?
     def set_version(self, version):
+        if self._x509_csr is None:
+            raise AlreadyFinalized("Context was already finalized.")
         if version not in (0, 2):
             raise ValueError('Version must be 0 (v1) or 2 (v3).')
         res = self._backend._lib.X509_REQ_set_version(self._x509_csr, version)
@@ -521,14 +556,17 @@ class _CertificateSigningRequestBuilder(object):
         return self
 
     def set_subject_name(self, attributes):
+        if self._x509_csr is None:
+            raise AlreadyFinalized("Context was already finalized.")
         name = _make_name(self._backend, attributes)
         res = self._backend._lib.X509_REQ_set_subject_name(
             self._x509_csr, name
         )
         assert res == 1
-        return self
 
     def add_extension(self, extension):
+        if self._x509_csr is None:
+            raise AlreadyFinalized("Context was already finalized.")
         if not isinstance(extension, x509.Extension):
             raise TypeError('Expecting an x509 extension.')
 
@@ -545,9 +583,10 @@ class _CertificateSigningRequestBuilder(object):
             self._extensions, extension
         )
         assert res == 1
-        return self
 
     def sign(self, private_key, algorithm):
+        if self._x509_csr is None:
+            raise AlreadyFinalized("Context was already finalized.")
         if not isinstance(algorithm, hashes.HashAlgorithm):
             raise TypeError('Algorithm must be a registered hash algorithm.')
 
@@ -571,24 +610,11 @@ class _CertificateSigningRequestBuilder(object):
             self._x509_csr, private_key._evp_pkey, evp_md
         )
         assert res > 0
-        return self
 
-    def public_bytes(self, encoding):
-        if not isinstance(encoding, serialization.Encoding):
-            raise TypeError("encoding must be an item from the Encoding enum")
+        csr = _CertificateSigningRequest(backend, self._x509_csr)
+        self._x509_csr = None
 
-        # TODO: make text prelude optional.
-        bio = self._backend._create_mem_bio()
-        res = self._backend._lib.X509_REQ_print(bio, self._x509_csr)
-        assert res == 1
-        if encoding is serialization.Encoding.PEM:
-            res = self._backend._lib.PEM_write_bio_X509_REQ(
-                bio, self._x509_csr
-            )
-        elif encoding is serialization.Encoding.DER:
-            res = self._backend._lib.i2d_X509_REQ_bio(bio, self._x509_csr)
-        assert res == 1
-        return self._backend._read_mem_bio(bio)
+        return csr
 
 
 @utils.register_interface(x509.CertificateBuilder)
@@ -599,55 +625,64 @@ class _CertificateBuilder(object):
         self._x509 = self._backend._ffi.gc(self._x509, backend._lib.X509_free)
 
     def set_version(self, version):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         res = self._backend._lib.X509_set_version(self._x509, 2)
         assert res == 1
-        return self
 
     def set_issuer_name(self, attributes):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         res = self._backend._lib.X509_set_issuer_name(
             self._x509, _make_name(self._backend, attributes)
         )
         assert res == 1
-        return self
 
     def set_subject_name(self, attributes):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         res = self._backend._lib.X509_set_subject_name(
             self._x509, _make_name(self._backend, attributes)
         )
         assert res == 1
-        return self
 
     def set_public_key(self, public_key):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         res = self._backend._lib.X509_set_pubkey(
             self._x509, public_key._evp_pkey
         )
         assert res == 1
-        return self
 
     def set_serial_number(self, serial_number):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         serial_number = _make_asn1_int(self._backend, serial_number)
         self._backend._lib.X509_set_serialNumber(self._x509, serial_number)
-        return self
 
     # NOTE: this is totally incorrect!
     def set_not_valid_before(self, time):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         res = self._backend._lib.ASN1_TIME_set(
             self._backend._lib.X509_get_notBefore(self._x509),
             calendar.timegm(time.timetuple())
         )
         assert res != self._backend._ffi.NULL
-        return self
 
     # NOTE: this is totally incorrect!
     def set_not_valid_after(self, time):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         res = self._backend._lib.ASN1_TIME_set(
             self._backend._lib.X509_get_notAfter(self._x509),
             calendar.timegm(time.timetuple())
         )
         assert res != self._backend._ffi.NULL
-        return self
 
     def add_extension(self, extension):
+        if self._x509 is None:
+            raise AlreadyFinalized("Context was already finalized.")
         if not isinstance(extension, x509.Extension):
             raise TypeError('Expecting an x509 extension.')
 
@@ -662,7 +697,6 @@ class _CertificateBuilder(object):
 
         res = self._backend._lib.X509_add_ext(self._x509, extension, 0)
         assert res == 1
-        return self
 
     def sign(self, private_key, algorithm):
         if not isinstance(algorithm, hashes.HashAlgorithm):
@@ -677,22 +711,10 @@ class _CertificateBuilder(object):
             self._x509, private_key._evp_pkey, evp_md
         )
         assert res > 0
-        return self
 
-    def public_bytes(self, encoding):
-        if not isinstance(encoding, serialization.Encoding):
-            raise TypeError("encoding must be an item from the Encoding enum")
-
-        # TODO: make text prelude optional.
-        bio = self._backend._create_mem_bio()
-        res = self._backend._lib.X509_print(bio, self._x509)
-        assert res == 1
-        if encoding is serialization.Encoding.PEM:
-            res = self._backend._lib.PEM_write_bio_X509(bio, self._x509)
-        elif encoding is serialization.Encoding.DER:
-            res = self._backend._lib.i2d_X509_bio(bio, self._x509)
-        assert res == 1
-        return self._backend._read_mem_bio(bio)
+        x509 = _Certificate(self._backend, self._x509)
+        self._x509 = None
+        return x509
 
 
 @utils.register_interface(x509.CertificateRevocationListBuilder)

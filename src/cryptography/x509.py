@@ -928,12 +928,6 @@ class CertificateSigningRequestBuilder(object):
         Signs the request using the requestor's private key.
         """
 
-    @abc.abstractmethod
-    def public_bytes(self, encoding):
-        """
-        Encodes the request to PEM or DER format.
-        """
-
 
 @six.add_metaclass(abc.ABCMeta)
 class CertificateRevocationListBuilder(object):
@@ -965,10 +959,4 @@ class CertificateRevocationListBuilder(object):
     def sign(self, private_key, algorithm):
         """
         Signs the revocation list using the CA's private key.
-        """
-
-    @abc.abstractmethod
-    def public_bytes(self, encoding):
-        """
-        Encodes the revocation list to PEM or DER format.
         """
